@@ -153,7 +153,15 @@ async function walkDir(dirPath: string, result: vscode.Uri[]) {
     return;
   }
 
-  const entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
+  let entries: fs.Dirent[];
+  try {
+    entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
+  } catch {
+    // An unreadable directory (permissions, broken symlink) must not abort the
+    // whole export; skip it and keep going.
+    return;
+  }
+
   for (const entry of entries) {
     const fullPath = path.join(dirPath, entry.name);
     if (entry.isDirectory()) {
@@ -187,7 +195,7 @@ async function copyFilesToClipboard(fileUris: vscode.Uri[]) {
       title: 'Exporting files to clipboard...',
       cancellable: false
     },
-    async () => {
+    async (progress) => {
       let output = '';
       let processedCount = 0;
       let skippedBinary = 0;
@@ -210,6 +218,8 @@ async function copyFilesToClipboard(fileUris: vscode.Uri[]) {
         } catch {
           // If file reading fails (e.g. strict binary disguised as text), ignore
         }
+
+        progress.report({ increment: 100 / fileUris.length });
       }
 
       if (processedCount === 0) {
@@ -268,24 +278,25 @@ async function createExportDir(): Promise<string> {
 async function exportFilesToDesktop(fileUris: vscode.Uri[]) {
   const targetDir = await createExportDir();
 
+  let copied = 0;
   for (const uri of fileUris) {
     const relPath = vscode.workspace.asRelativePath(uri, false);
-    const destPath = path.join(targetDir, relPath);
+    let destPath = path.join(targetDir, relPath);
+
     if (!isInsideDir(targetDir, destPath)) {
       // The workspace-relative path escaped the export folder, which happens for
       // files outside the workspace: in a multi-root workspace VS Code returns a
       // '../other/file.txt' style path, and with no workspace at all it returns
       // an absolute path. Fall back to the bare filename so the file still lands
       // inside the export folder.
-      await fs.promises.mkdir(targetDir, { recursive: true });
-      await fs.promises.copyFile(uri.fsPath, path.join(targetDir, path.basename(uri.fsPath)));
-      continue;
+      destPath = path.join(targetDir, path.basename(uri.fsPath));
+      if (!isInsideDir(targetDir, destPath)) continue;
     }
-    await fs.promises.mkdir(path.dirname(destPath), { recursive: true });
-    await fs.promises.copyFile(uri.fsPath, destPath);
+
+    if (await safeCopyFile(uri.fsPath, destPath)) copied++;
   }
 
-  showDesktopExportSuccess(targetDir, fileUris.length);
+  showDesktopExportSuccess(targetDir, copied);
 }
 
 /**
@@ -294,22 +305,28 @@ async function exportFilesToDesktop(fileUris: vscode.Uri[]) {
 async function exportItemsToDesktop(targets: vscode.Uri[]) {
   const targetDir = await createExportDir();
 
+  let copied = 0;
   for (const uri of targets) {
-    const stat = await fs.promises.stat(uri.fsPath);
     const itemName = path.basename(uri.fsPath);
     const destPath = path.join(targetDir, itemName);
     // basename() cannot contain a separator, but guard anyway so a crafted name
     // can never write outside the export folder.
     if (!isInsideDir(targetDir, destPath)) continue;
 
-    if (stat.isDirectory()) {
-      await copyDirectoryRecursive(uri.fsPath, destPath);
-    } else {
-      await fs.promises.copyFile(uri.fsPath, destPath);
+    try {
+      const stat = await fs.promises.stat(uri.fsPath);
+      if (stat.isDirectory()) {
+        await copyDirectoryRecursive(uri.fsPath, destPath);
+        copied++;
+      } else if (stat.isFile()) {
+        if (await safeCopyFile(uri.fsPath, destPath)) copied++;
+      }
+    } catch {
+      // Skip inaccessible paths rather than failing the whole export
     }
   }
 
-  showDesktopExportSuccess(targetDir, targets.length);
+  showDesktopExportSuccess(targetDir, copied);
 }
 
 /**
@@ -320,12 +337,33 @@ function isInsideDir(parent: string, child: string): boolean {
   return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
 }
 
+/**
+ * Copies a single file, creating its parent directory first.
+ *
+ * A locked or otherwise unreadable file returns false instead of throwing, so
+ * one bad file cannot abort the rest of the export.
+ */
+async function safeCopyFile(src: string, dest: string): Promise<boolean> {
+  try {
+    await fs.promises.mkdir(path.dirname(dest), { recursive: true });
+    await fs.promises.copyFile(src, dest);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function copyDirectoryRecursive(src: string, dest: string) {
   const base = path.basename(src);
   if (IGNORED_DIRS.has(base)) return;
 
   await fs.promises.mkdir(dest, { recursive: true });
-  const entries = await fs.promises.readdir(src, { withFileTypes: true });
+  let entries: fs.Dirent[];
+  try {
+    entries = await fs.promises.readdir(src, { withFileTypes: true });
+  } catch {
+    return;
+  }
 
   for (const entry of entries) {
     const srcChild = path.join(src, entry.name);
@@ -336,7 +374,7 @@ async function copyDirectoryRecursive(src: string, dest: string) {
         await copyDirectoryRecursive(srcChild, destChild);
       }
     } else if (entry.isFile()) {
-      await fs.promises.copyFile(srcChild, destChild);
+      await safeCopyFile(srcChild, destChild);
     }
   }
 }
