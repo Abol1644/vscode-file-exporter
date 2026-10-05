@@ -335,7 +335,9 @@ function showDesktopExportSuccess(exportDir: string, count: number) {
     'Open Folder'
   ).then(selection => {
     if (selection === 'Open Folder') {
-      vscode.env.openExternal(vscode.Uri.file(exportDir));
+      // env.openExternal() on a directory hands off to Explorer/Finder, which
+      // loses the editor context. Open it as a VS Code window instead.
+      vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(exportDir));
     }
   });
 }
