@@ -241,6 +241,16 @@ async function exportFilesToDesktop(fileUris: vscode.Uri[]) {
   for (const uri of fileUris) {
     const relPath = vscode.workspace.asRelativePath(uri, false);
     const destPath = path.join(targetDir, relPath);
+    if (!isInsideDir(targetDir, destPath)) {
+      // The workspace-relative path escaped the export folder, which happens for
+      // files outside the workspace: in a multi-root workspace VS Code returns a
+      // '../other/file.txt' style path, and with no workspace at all it returns
+      // an absolute path. Fall back to the bare filename so the file still lands
+      // inside the export folder.
+      await fs.promises.mkdir(targetDir, { recursive: true });
+      await fs.promises.copyFile(uri.fsPath, path.join(targetDir, path.basename(uri.fsPath)));
+      continue;
+    }
     await fs.promises.mkdir(path.dirname(destPath), { recursive: true });
     await fs.promises.copyFile(uri.fsPath, destPath);
   }
@@ -261,6 +271,9 @@ async function exportItemsToDesktop(targets: vscode.Uri[]) {
     const stat = await fs.promises.stat(uri.fsPath);
     const itemName = path.basename(uri.fsPath);
     const destPath = path.join(targetDir, itemName);
+    // basename() cannot contain a separator, but guard anyway so a crafted name
+    // can never write outside the export folder.
+    if (!isInsideDir(targetDir, destPath)) continue;
 
     if (stat.isDirectory()) {
       await copyDirectoryRecursive(uri.fsPath, destPath);
@@ -270,6 +283,14 @@ async function exportItemsToDesktop(targets: vscode.Uri[]) {
   }
 
   showDesktopExportSuccess(targetDir, targets.length);
+}
+
+/**
+ * True when `child` resolves to a location strictly inside `parent`.
+ */
+function isInsideDir(parent: string, child: string): boolean {
+  const rel = path.relative(path.resolve(parent), path.resolve(child));
+  return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
 }
 
 async function copyDirectoryRecursive(src: string, dest: string) {
