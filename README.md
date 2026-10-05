@@ -281,4 +281,8 @@ window — the entries appear under the `Export:` group in the Explorer context 
 
 ## License
 
-MIT — see [LICENSE.txt](LICENSE.txt).
+MIT — see the `LICENSE.txt` file in the repository root.
+
+If you publish this to a marketplace, add a `repository` field to `package.json` first.
+`vsce` needs it to rewrite relative links and images in this README; without it, packaging
+fails outright.
