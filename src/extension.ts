@@ -2,6 +2,19 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 
+// Common folders to skip during directory traversal
+const IGNORED_DIRS = new Set([
+  'node_modules',
+  '.git',
+  '.svn',
+  '.hg',
+  'dist',
+  'build',
+  'out',
+  '.next',
+  '.cache'
+]);
+
 // Common binary extensions to skip when copying text to clipboard
 const BINARY_EXTENSIONS = new Set([
   '.png', '.jpg', '.jpeg', '.gif', '.ico', '.svg', '.webp',
@@ -20,6 +33,19 @@ export function activate(context: vscode.ExtensionContext) {
         return;
       }
       await copyFilesToClipboard(uris);
+    })
+  );
+
+  // 2. Copy selected Explorer files/folders to clipboard
+  context.subscriptions.push(
+    vscode.commands.registerCommand('fileExporter.copySelectionToClipboard', async (clickedUri: vscode.Uri, allSelectedUris: vscode.Uri[]) => {
+      const targets = getExplorerTargets(clickedUri, allSelectedUris);
+      if (targets.length === 0) {
+        vscode.window.showWarningMessage('No files or folders selected.');
+        return;
+      }
+      const files = await resolveAllFiles(targets);
+      await copyFilesToClipboard(files);
     })
   );
 }
@@ -56,6 +82,63 @@ function getOpenEditorUris(): vscode.Uri[] {
     seen.add(uri.fsPath);
     return true;
   });
+}
+
+/**
+ * Handles VS Code passing the clicked item as 1st arg and multi-selection as 2nd arg.
+ */
+function getExplorerTargets(clickedUri?: vscode.Uri, allSelectedUris?: vscode.Uri[]): vscode.Uri[] {
+  if (allSelectedUris && allSelectedUris.length > 0) {
+    return allSelectedUris;
+  }
+  if (clickedUri) {
+    return [clickedUri];
+  }
+  return [];
+}
+
+/**
+ * Recursively inspects URIs and returns a flat list of actual file URIs.
+ */
+async function resolveAllFiles(uris: vscode.Uri[]): Promise<vscode.Uri[]> {
+  const fileUris: vscode.Uri[] = [];
+
+  for (const uri of uris) {
+    try {
+      const stat = await fs.promises.stat(uri.fsPath);
+      if (stat.isDirectory()) {
+        await walkDir(uri.fsPath, fileUris);
+      } else if (stat.isFile()) {
+        fileUris.push(uri);
+      }
+    } catch {
+      // Skip inaccessible paths
+    }
+  }
+
+  return fileUris;
+}
+
+/**
+ * Depth-first collection of files under a directory, pruning ignored folders.
+ */
+async function walkDir(dirPath: string, result: vscode.Uri[]) {
+  const baseName = path.basename(dirPath);
+  if (IGNORED_DIRS.has(baseName)) {
+    return;
+  }
+
+  const entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
+  for (const entry of entries) {
+    const fullPath = path.join(dirPath, entry.name);
+    if (entry.isDirectory()) {
+      if (!IGNORED_DIRS.has(entry.name)) {
+        await walkDir(fullPath, result);
+      }
+    } else if (entry.isFile()) {
+      result.push(vscode.Uri.file(fullPath));
+    }
+  }
 }
 
 /**
