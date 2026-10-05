@@ -230,13 +230,31 @@ function getDesktopPath(): string {
 }
 
 /**
+ * Creates a fresh, uniquely named export folder on the Desktop.
+ *
+ * The timestamp is only second-granular, so two exports started in the same
+ * second would otherwise target the same directory and silently overwrite each
+ * other. Probe for a free name instead.
+ */
+async function createExportDir(): Promise<string> {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const desktop = getDesktopPath();
+
+  let targetDir = path.join(desktop, `VSCode_Export_${timestamp}`);
+  let suffix = 1;
+  while (fs.existsSync(targetDir)) {
+    targetDir = path.join(desktop, `VSCode_Export_${timestamp}_${suffix++}`);
+  }
+
+  await fs.promises.mkdir(targetDir, { recursive: true });
+  return targetDir;
+}
+
+/**
  * Exports a list of open file URIs to Desktop in a timestamped folder.
  */
 async function exportFilesToDesktop(fileUris: vscode.Uri[]) {
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-  const targetDir = path.join(getDesktopPath(), `VSCode_Export_${timestamp}`);
-
-  await fs.promises.mkdir(targetDir, { recursive: true });
+  const targetDir = await createExportDir();
 
   for (const uri of fileUris) {
     const relPath = vscode.workspace.asRelativePath(uri, false);
@@ -262,10 +280,7 @@ async function exportFilesToDesktop(fileUris: vscode.Uri[]) {
  * Copies selected files/folders from Explorer to Desktop, maintaining tree structure.
  */
 async function exportItemsToDesktop(targets: vscode.Uri[]) {
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-  const targetDir = path.join(getDesktopPath(), `VSCode_Export_${timestamp}`);
-
-  await fs.promises.mkdir(targetDir, { recursive: true });
+  const targetDir = await createExportDir();
 
   for (const uri of targets) {
     const stat = await fs.promises.stat(uri.fsPath);
