@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 
 // Common folders to skip during directory traversal
 const IGNORED_DIRS = new Set([
@@ -46,6 +47,30 @@ export function activate(context: vscode.ExtensionContext) {
       }
       const files = await resolveAllFiles(targets);
       await copyFilesToClipboard(files);
+    })
+  );
+
+  // 3. Export open files to Desktop
+  context.subscriptions.push(
+    vscode.commands.registerCommand('fileExporter.exportOpenFilesToDesktop', async () => {
+      const uris = getOpenEditorUris();
+      if (uris.length === 0) {
+        vscode.window.showInformationMessage('No open file tabs found.');
+        return;
+      }
+      await exportFilesToDesktop(uris);
+    })
+  );
+
+  // 4. Export selected Explorer files/folders to Desktop
+  context.subscriptions.push(
+    vscode.commands.registerCommand('fileExporter.exportSelectionToDesktop', async (clickedUri: vscode.Uri, allSelectedUris: vscode.Uri[]) => {
+      const targets = getExplorerTargets(clickedUri, allSelectedUris);
+      if (targets.length === 0) {
+        vscode.window.showWarningMessage('No files or folders selected.');
+        return;
+      }
+      await exportItemsToDesktop(targets);
     })
   );
 }
@@ -185,6 +210,98 @@ async function copyFilesToClipboard(fileUris: vscode.Uri[]) {
       vscode.window.showInformationMessage(`Copied ${processedCount} file(s) to clipboard!${binaryMsg}`);
     }
   );
+}
+
+/**
+ * Gets the user's Desktop directory path across OS platforms.
+ */
+function getDesktopPath(): string {
+  const home = os.homedir();
+  const desktop = path.join(home, 'Desktop');
+  if (fs.existsSync(desktop)) {
+    return desktop;
+  }
+  // Fallback for OneDrive mapped Desktops on Windows
+  const oneDriveDesktop = path.join(home, 'OneDrive', 'Desktop');
+  if (fs.existsSync(oneDriveDesktop)) {
+    return oneDriveDesktop;
+  }
+  return home;
+}
+
+/**
+ * Exports a list of open file URIs to Desktop in a timestamped folder.
+ */
+async function exportFilesToDesktop(fileUris: vscode.Uri[]) {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const targetDir = path.join(getDesktopPath(), `VSCode_Export_${timestamp}`);
+
+  await fs.promises.mkdir(targetDir, { recursive: true });
+
+  for (const uri of fileUris) {
+    const relPath = vscode.workspace.asRelativePath(uri, false);
+    const destPath = path.join(targetDir, relPath);
+    await fs.promises.mkdir(path.dirname(destPath), { recursive: true });
+    await fs.promises.copyFile(uri.fsPath, destPath);
+  }
+
+  showDesktopExportSuccess(targetDir, fileUris.length);
+}
+
+/**
+ * Copies selected files/folders from Explorer to Desktop, maintaining tree structure.
+ */
+async function exportItemsToDesktop(targets: vscode.Uri[]) {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const targetDir = path.join(getDesktopPath(), `VSCode_Export_${timestamp}`);
+
+  await fs.promises.mkdir(targetDir, { recursive: true });
+
+  for (const uri of targets) {
+    const stat = await fs.promises.stat(uri.fsPath);
+    const itemName = path.basename(uri.fsPath);
+    const destPath = path.join(targetDir, itemName);
+
+    if (stat.isDirectory()) {
+      await copyDirectoryRecursive(uri.fsPath, destPath);
+    } else {
+      await fs.promises.copyFile(uri.fsPath, destPath);
+    }
+  }
+
+  showDesktopExportSuccess(targetDir, targets.length);
+}
+
+async function copyDirectoryRecursive(src: string, dest: string) {
+  const base = path.basename(src);
+  if (IGNORED_DIRS.has(base)) return;
+
+  await fs.promises.mkdir(dest, { recursive: true });
+  const entries = await fs.promises.readdir(src, { withFileTypes: true });
+
+  for (const entry of entries) {
+    const srcChild = path.join(src, entry.name);
+    const destChild = path.join(dest, entry.name);
+
+    if (entry.isDirectory()) {
+      if (!IGNORED_DIRS.has(entry.name)) {
+        await copyDirectoryRecursive(srcChild, destChild);
+      }
+    } else if (entry.isFile()) {
+      await fs.promises.copyFile(srcChild, destChild);
+    }
+  }
+}
+
+function showDesktopExportSuccess(exportDir: string, count: number) {
+  vscode.window.showInformationMessage(
+    `Exported ${count} item(s) to: ${path.basename(exportDir)}`,
+    'Open Folder'
+  ).then(selection => {
+    if (selection === 'Open Folder') {
+      vscode.env.openExternal(vscode.Uri.file(exportDir));
+    }
+  });
 }
 
 export function deactivate() {}
