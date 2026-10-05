@@ -167,6 +167,17 @@ async function walkDir(dirPath: string, result: vscode.Uri[]) {
 }
 
 /**
+ * Picks a Markdown fence long enough that the file's own content cannot close it.
+ */
+function fenceFor(content: string): string {
+  let longestRun = 0;
+  for (const match of content.matchAll(/`+/g)) {
+    longestRun = Math.max(longestRun, match[0].length);
+  }
+  return '`'.repeat(Math.max(3, longestRun + 1));
+}
+
+/**
  * Formats file contents into Markdown code blocks and writes to clipboard.
  */
 async function copyFilesToClipboard(fileUris: vscode.Uri[]) {
@@ -192,8 +203,9 @@ async function copyFilesToClipboard(fileUris: vscode.Uri[]) {
           const content = await fs.promises.readFile(uri.fsPath, 'utf8');
           const relPath = vscode.workspace.asRelativePath(uri, true);
           const lang = ext.replace('.', '') || 'text';
+          const fence = fenceFor(content);
 
-          output += `### File: ${relPath}\n\`\`\`${lang}\n${content}\n\`\`\`\n\n`;
+          output += `### File: ${relPath}\n${fence}${lang}\n${content}\n${fence}\n\n`;
           processedCount++;
         } catch {
           // If file reading fails (e.g. strict binary disguised as text), ignore
