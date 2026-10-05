@@ -6,3 +6,5 @@ tsconfig.json
 .gitignore
 **/*.map
 **/*.ts
+# A previously built artifact must never end up nested inside a new one
+*.vsix

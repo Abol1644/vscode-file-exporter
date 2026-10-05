@@ -130,14 +130,27 @@ Desktop/
 
 ## Install
 
-### From a VSIX
+### From a released VSIX
+
+Each release tag carries its own built `.vsix`, committed to the repository, so you can
+install without building anything:
+
+```bash
+git clone <this-repo> vscode-file-exporter
+cd vscode-file-exporter
+git checkout v1.0.1
+```
+
+Then in VS Code: **Extensions** (`Ctrl+Shift+X`) → **···** → **Install from VSIX...** and
+pick `file-exporter-1.0.1.vsix` from the repository root.
+
+### Build it yourself
 
 ```bash
 npx @vscode/vsce package
 ```
 
-Then in VS Code: **Extensions** (`Ctrl+Shift+X`) → **···** → **Install from VSIX...** and
-pick the generated `file-exporter-1.0.0.vsix`.
+This produces `file-exporter-<version>.vsix` using the version in `package.json`.
 
 ### From source
 
@@ -160,7 +173,7 @@ built folder manually.
 | `npm install` | Install devDependencies |
 | `npm run compile` | Type-check and emit to `out/` |
 | `npm run watch` | Recompile on change (also the default build task for `F5`) |
-| `npx @vscode/vsce package` | Build `file-exporter-1.0.0.vsix` |
+| `npx @vscode/vsce package` | Build `file-exporter-<version>.vsix` |
 
 Press `F5` to launch an Extension Development Host with the extension loaded.
 
@@ -215,14 +228,36 @@ the same reason — it is not a plain text file.
 vscode-file-exporter/
 ├── package.json              # manifest: commands, menus, scripts
 ├── tsconfig.json             # CommonJS / ES2022, strict
-├── .vscodeignore             # keeps sources out of the VSIX
+├── .vscodeignore             # keeps sources and stale artifacts out of the VSIX
 ├── .vscode/
 │   ├── launch.json           # F5 → Extension Development Host
 │   └── tasks.json            # npm run watch as default build task
 ├── src/
 │   └── extension.ts          # the entire extension
+├── file-exporter-1.0.1.vsix  # built artifact, committed at the v1.0.1 tag
 └── LICENSE.txt
 ```
+
+## Releases
+
+Each release tag carries its own built `.vsix`, committed to the repository, so a tagged
+version can be installed without a build step:
+
+| Tag | Artifact | Notes |
+| --- | --- | --- |
+| `v1.0.1` | `file-exporter-1.0.1.vsix` | First tag with the artifact tracked |
+
+```bash
+git checkout v1.0.1
+# then Extensions → ··· → Install from VSIX... → file-exporter-1.0.1.vsix
+```
+
+`v1.0.0` predates this practice and has no committed artifact — build it with
+`npx @vscode/vsce package` if you need it.
+
+Only the current version's artifact is kept in the tree, so a rebuild of the same version
+shows up as a modified file rather than silently accumulating binaries. `.vscodeignore`
+excludes `*.vsix` so an existing artifact is never nested inside a newly built one.
 
 ## Development history
 
@@ -241,6 +276,9 @@ defect reproduced against the code as it stood at the preceding commit.
 | `c99cbf7` | `fix(markdown):` widen fences so content cannot terminate its own block |
 | `2986ff4` | `fix(export):` skip unreadable entries, report real counts |
 | `d4cae68` | `chore:` F5 launch config and VSIX packaging hygiene |
+| `aa66c04` | `docs:` complete README and MIT license |
+| `4b92c73` | `docs:` drop the relative LICENSE link that broke `vsce` packaging |
+| `v1.0.1` | `chore(release):` version 1.0.1, track the release artifact |
 
 The three most consequential fixes, all reproduced before being fixed:
 

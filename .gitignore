@@ -1,4 +1,7 @@
 node_modules/
 out/
-*.vsix
 .vscode-test/
+
+# Release artifacts are intentionally tracked so each release tag carries its
+# own .vsix. *.vsix is also excluded in .vscodeignore so a stale artifact is
+# never nested inside a newly built one.

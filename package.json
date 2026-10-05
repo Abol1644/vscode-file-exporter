@@ -2,7 +2,7 @@
   "name": "file-exporter",
   "displayName": "File Exporter (Clipboard & Desktop)",
   "description": "Export open tabs or explorer selections to your clipboard or desktop.",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "publisher": "file-exporter",
   "license": "MIT",
   "engines": {
